@@ -10,12 +10,12 @@ app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024
 
 socketio = SocketIO(app, cors_allowed_origins="*")
 
-BASE_DIR       = os.path.dirname(os.path.abspath(__file__))
-UPLOAD_FOLDER  = os.path.join(BASE_DIR, 'uploads')
-PHOTO_FOLDER   = os.path.join(UPLOAD_FOLDER, 'photos')
-VIDEO_FOLDER   = os.path.join(UPLOAD_FOLDER, 'videos')
+BASE_DIR        = os.path.dirname(os.path.abspath(__file__))
+UPLOAD_FOLDER   = os.path.join(BASE_DIR, 'uploads')
+PHOTO_FOLDER    = os.path.join(UPLOAD_FOLDER, 'photos')
+VIDEO_FOLDER    = os.path.join(UPLOAD_FOLDER, 'videos')
 DATABASE_FOLDER = os.path.join(BASE_DIR, 'database')
-USERS_FILE     = os.path.join(DATABASE_FOLDER, 'users.json')
+USERS_FILE      = os.path.join(DATABASE_FOLDER, 'users.json')
 
 os.makedirs(PHOTO_FOLDER,    exist_ok=True)
 os.makedirs(VIDEO_FOLDER,    exist_ok=True)
@@ -44,7 +44,7 @@ def index():
 
 @app.route('/api/register', methods=['POST'])
 def register():
-    data = request.json
+    data     = request.json
     username = (data.get('username') or '').strip()
     password = data.get('password', '')
     email    = data.get('email', '').strip()
@@ -55,16 +55,20 @@ def register():
     users = load_users()
     if username in users:
         return jsonify({'success': False, 'error': 'Имя уже занято'})
-    users[username] = {'password': password, 'email': email, 'created_at': datetime.now().isoformat()}
+    users[username] = {
+        'password':   password,
+        'email':      email,
+        'created_at': datetime.now().isoformat()
+    }
     save_users(users)
     return jsonify({'success': True, 'username': username})
 
 @app.route('/api/login', methods=['POST'])
 def login():
-    data = request.json
+    data     = request.json
     username = (data.get('username') or '').strip()
     password = data.get('password', '')
-    users = load_users()
+    users    = load_users()
     if username in users and users[username]['password'] == password:
         return jsonify({'success': True, 'username': username})
     return jsonify({'success': False, 'error': 'Неверное имя или пароль'})
@@ -77,12 +81,12 @@ def get_users():
 def upload_file():
     if 'file' not in request.files:
         return jsonify({'success': False, 'error': 'Нет файла'})
-    file = request.files['file']
+    file      = request.files['file']
     file_type = request.form.get('type', 'photo')
     if not file.filename:
         return jsonify({'success': False, 'error': 'Файл не выбран'})
-    folder = PHOTO_FOLDER if file_type == 'photo' else VIDEO_FOLDER
-    ext = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else 'bin'
+    folder   = PHOTO_FOLDER if file_type == 'photo' else VIDEO_FOLDER
+    ext      = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else 'bin'
     filename = f"{uuid.uuid4()}.{ext}"
     file.save(os.path.join(folder, filename))
     return jsonify({'success': True, 'file_url': f'/uploads/{file_type}s/{filename}'})
@@ -91,6 +95,7 @@ def upload_file():
 def get_upload(folder, filename):
     return send_from_directory(os.path.join(UPLOAD_FOLDER, folder), filename)
 
+# ── SOCKET ────────────────────────────────────────────
 @socketio.on('connect')
 def handle_connect():
     print(f'Подключен: {request.sid}')
@@ -110,6 +115,7 @@ def handle_user_online(data):
     if username:
         active_users[username] = request.sid
         emit('users_online', list(active_users.keys()), broadcast=True)
+        print(f'{username} онлайн')
 
 @socketio.on('send_message')
 def handle_message(data):
@@ -133,16 +139,29 @@ def handle_message(data):
     if not is_private:
         general_messages.append(message)
         emit('new_message', message, broadcast=True)
+        print(f"[general] {sender}: {str(text)[:40]}")
     else:
         chat_id = get_chat_id(sender, recipient)
         private_messages.setdefault(chat_id, []).append(message)
+        print(f"[private] {sender} → {recipient}: {str(text)[:40]}")
         if recipient in active_users:
             emit('new_message', message, room=active_users[recipient])
         emit('new_message', message, room=request.sid)
 
+@socketio.on('typing')
+def handle_typing(data):
+    sender    = data.get('sender', '')
+    recipient = data.get('recipient', 'all')
+    if recipient == 'all':
+        emit('typing', data, broadcast=True, include_self=False)
+    else:
+        if recipient in active_users:
+            emit('typing', data, room=active_users[recipient])
+
 @socketio.on('get_messages')
 def handle_get_messages(data=None):
     username = (data or {}).get('username', '').strip()
+
     user_private = {}
     for chat_id, msgs in private_messages.items():
         parts = chat_id.split('__')
@@ -153,6 +172,7 @@ def handle_get_messages(data=None):
         'general': general_messages,
         'private': user_private
     })
+    print(f"История → {username}: {len(general_messages)} общих, {len(user_private)} личных чатов")
 
 if __name__ == '__main__':
     import socket as _socket

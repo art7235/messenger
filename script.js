@@ -91,32 +91,30 @@ async function login() {
 }
 
 async function register() {
-    const username = document.getElementById('reg-username').value;
-    const email = document.getElementById('reg-email').value;
+    const username = document.getElementById('reg-username').value.trim();
+    const email    = document.getElementById('reg-email').value.trim();
     const password = document.getElementById('reg-password').value;
-    
-    console.log('Попытка регистрации:', username);
-    
+    const errEl    = document.getElementById('reg-error');
+    errEl.textContent = ''; errEl.className = 'error';
+    if (!username || !email || !password) { errEl.textContent = 'Заполните все поля'; return; }
+    // Валидация email
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) { errEl.textContent = 'Введите корректный email'; return; }
     try {
-        const response = await fetch('/api/register', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
+        const res = await fetch('/api/register', {
+            method:'POST', headers:{'Content-Type':'application/json'},
             body: JSON.stringify({username, email, password})
         });
-        
-        const data = await response.json();
-        console.log('Ответ сервера:', data);
-        
+        const data = await res.json();
         if (data.success) {
-            alert('Регистрация успешна! Теперь войдите в систему.');
             showLogin();
-        } else {
-            document.getElementById('reg-error').textContent = data.error;
-        }
-    } catch (error) {
-        console.error('Register error:', error);
-        document.getElementById('reg-error').textContent = 'Ошибка соединения с сервером';
-    }
+            document.getElementById('login-username').value = username;
+            const el = document.getElementById('login-error');
+            el.className = 'success-msg';
+            el.textContent = '✓ Аккаунт создан — войдите';
+            setTimeout(() => { el.textContent = ''; el.className = 'error'; }, 3000);
+        } else { errEl.textContent = data.error || 'Ошибка'; }
+    } catch(e) { errEl.textContent = 'Ошибка соединения'; }
 }
 
 function logout() {
